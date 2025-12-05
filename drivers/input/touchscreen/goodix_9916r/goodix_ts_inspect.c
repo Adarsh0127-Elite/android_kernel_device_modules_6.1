@@ -600,21 +600,17 @@ static int goodix_init_testlimits(struct goodix_ts_test *ts_test)
 	char tmp_str[64] = { 0 };
 	int freq_cnt;
 
-	if (ts_core->lockdown_info[1] == 0x36)
-		sprintf(limit_file, "%s_test_limits_%d_TM.csv",
-			GOODIX_TEST_FILE_NAME, ts_core->fw_version.sensor_id);
-	else if (ts_core->lockdown_info[1] == 0x42) //CSOT
-		sprintf(limit_file, "%s_test_limits_%d.csv",
-			GOODIX_TEST_FILE_NAME, ts_core->fw_version.sensor_id);
-	else
-		sprintf(limit_file, "%s_test_limits_%d_TM.csv",
-			GOODIX_TEST_FILE_NAME, ts_core->fw_version.sensor_id);
-
+	scnprintf(limit_file, ARRAY_SIZE(limit_file), "%s_test_limits_%d.csv",
+		  GOODIX_TEST_FILE_NAME, ts_core->fw_version.sensor_id);
 	ts_info("limit_file_name:%s", limit_file);
 
 	ret = request_firmware(&firmware, limit_file, dev);
 	if (ret < 0) {
 		ts_err("limits file [%s] not available", limit_file);
+		return -EINVAL;
+	}
+	if (!firmware) {
+		ts_err("request_firmware failed");
 		return -EINVAL;
 	}
 	if (firmware->size <= 0) {
@@ -623,18 +619,13 @@ static int goodix_init_testlimits(struct goodix_ts_test *ts_test)
 		ret = -EINVAL;
 		goto exit_free;
 	}
-	temp_buf = vmalloc(firmware->size + 1);
-	memset(temp_buf, 0, (firmware->size + 1));
+	temp_buf = kzalloc(firmware->size + 1, GFP_KERNEL);
 	if (!temp_buf) {
+		ts_err("kzalloc bytes failed.");
 		ret = -ENOMEM;
 		goto exit_free;
 	}
 	memcpy(temp_buf, firmware->data, firmware->size);
-
-	test_params->test_items[GTP_VERSION_TEST] = true;
-	test_params->test_items[GTP_CHIP_KEY_INFO_TEST] = true;
-	test_params->test_items[GTP_CUSTOM_INFO_TEST] = true;
-	test_params->test_items[GTP_RESET_TEST] = true;
 
 	/* obtain config data */
 	ret = parse_csvfile(temp_buf, firmware->size, CSV_TP_TEST_CONFIG,
@@ -659,6 +650,7 @@ static int goodix_init_testlimits(struct goodix_ts_test *ts_test)
 	} else {
 		ts_info("parse_csvfile %s OK", CSV_TP_SPECIAL_RAW_MIN);
 	}
+
 	/* obtain mutual_raw max */
 	ret = parse_csvfile(temp_buf, firmware->size, CSV_TP_SPECIAL_RAW_MAX,
 			    test_params->max_limits, rx, tx);
@@ -668,6 +660,7 @@ static int goodix_init_testlimits(struct goodix_ts_test *ts_test)
 	} else {
 		ts_info("parse_csvfile %s OK", CSV_TP_SPECIAL_RAW_MAX);
 	}
+
 	/* obtain delta limit */
 	ret = parse_csvfile(temp_buf, firmware->size, CSV_TP_SPECIAL_RAW_DELTA,
 			    test_params->deviation_limits, rx, tx);
@@ -747,9 +740,8 @@ static int goodix_init_testlimits(struct goodix_ts_test *ts_test)
 	}
 
 exit_free:
-	vfree(temp_buf);
-	if (firmware)
-		release_firmware(firmware);
+	kfree(temp_buf);
+	release_firmware(firmware);
 	return ret;
 }
 
